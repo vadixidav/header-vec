@@ -4,7 +4,7 @@ extern crate alloc;
 
 use core::{
     fmt::Debug,
-    mem::{self, ManuallyDrop},
+    mem::{self, ManuallyDrop, MaybeUninit},
     ops::{Deref, DerefMut, Index, IndexMut},
     ptr,
     slice::SliceIndex,
@@ -370,6 +370,42 @@ impl<H, T> HeaderVec<H, T> {
         }
         // The head now represents the new length of the vector.
         self.header_mut().len = head.into();
+    }
+
+    /// Returns the remaining spare capacity of the vector as a slice of
+    /// `MaybeUninit<T>`.
+    ///
+    /// The returned slice can be used to fill the vector with data (e.g. by
+    /// reading from a file) before marking the data as initialized using the
+    /// [`set_len`] method.
+    ///
+    pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
+        unsafe {
+            core::slice::from_raw_parts_mut(
+                self.end_ptr_mut() as *mut MaybeUninit<T>,
+                self.spare_capacity(),
+            )
+        }
+    }
+
+    /// Forces the length of the headervec to `new_len`.
+    ///
+    /// This is a low-level operation that maintains none of the normal
+    /// invariants of the type. Normally changing the length of a vector
+    /// is done using one of the safe operations instead. Noteworthy is that
+    /// this method does not drop any of the elements that are removed when
+    /// shrinking the vector.
+    ///
+    /// # Safety
+    ///
+    /// - `new_len` must be less than or equal to [`capacity()`].
+    /// - The elements at `old_len..new_len` must be initialized.
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        debug_assert!(
+            new_len <= self.capacity(),
+            "new_len is greater than capacity"
+        );
+        self.header_mut().len = new_len.into();
     }
 
     /// Gives the offset in units of T (as if the pointer started at an array of T) that the slice actually starts at.
